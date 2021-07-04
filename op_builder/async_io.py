@@ -1,6 +1,7 @@
 """
 Copyright 2020 The Microsoft DeepSpeed Team
 """
+import os
 from .builder import OpBuilder
 
 
@@ -21,13 +22,17 @@ class AsyncIOBuilder(OpBuilder):
             'csrc/aio/py_lib/deepspeed_py_aio.cpp',
             'csrc/aio/py_lib/deepspeed_py_aio_handle.cpp',
             'csrc/aio/py_lib/deepspeed_aio_thread.cpp',
+            'csrc/aio/py_lib/deepspeed_aio_op_desc.cpp',
+            'csrc/aio/py_lib/deepspeed_gds_op.cpp',
             'csrc/aio/common/deepspeed_aio_utils.cpp',
             'csrc/aio/common/deepspeed_aio_common.cpp',
             'csrc/aio/common/deepspeed_aio_types.cpp'
         ]
 
     def include_paths(self):
-        return ['csrc/aio/py_lib', 'csrc/aio/common']
+        import torch.utils.cpp_extension
+        CUDA_INCLUDE = os.path.join(torch.utils.cpp_extension.CUDA_HOME, "include")
+        return ['csrc/aio/py_lib', 'csrc/aio/common', CUDA_INCLUDE]
 
     def cxx_args(self):
         args = [
@@ -40,7 +45,6 @@ class AsyncIOBuilder(OpBuilder):
             '-Wno-reorder',
             '-march=native',
             '-fopenmp',
-            '-laio',
         ]
 
         simd_width = self.simd_width()
@@ -50,7 +54,17 @@ class AsyncIOBuilder(OpBuilder):
         return args
 
     def extra_ldflags(self):
-        return ['-laio']
+        import torch.utils.cpp_extension
+        CUDA_HOME = torch.utils.cpp_extension.CUDA_HOME
+        CUDA_LIB64 = os.path.join(CUDA_HOME, "lib64")
+        return [
+            f'-L{CUDA_HOME}',
+            f'-L{CUDA_LIB64}',
+            '-laio',
+            '-lcuda',
+            '-lcudart',
+            '-lcufile'
+        ]
 
     def is_compatible(self):
         aio_libraries = ['libaio-dev']

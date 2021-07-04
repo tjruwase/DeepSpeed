@@ -15,6 +15,7 @@ struct deepspeed_aio_handle_t {
     const bool _overlap_events;
     const int _num_threads;
     deepspeed_aio_config_t _aio_config;
+    static bool s_cuFile_init;
 
     std::vector<std::shared_ptr<struct deepspeed_aio_thread_t>> _thread_contexts;
     std::vector<std::thread> _threads;

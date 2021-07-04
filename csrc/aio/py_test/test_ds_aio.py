@@ -65,7 +65,7 @@ def parse_arguments():
                         default=None,
                         help='Per iop parallelism')
 
-    parser.add_argument('--gpu', action='store_true', help='Use GPU memory')
+    parser.add_argument('--gpu', type=int, default=None, help='Use GPU device memory')
 
     args = parser.parse_args()
     print(f'args = {args}')
@@ -75,6 +75,12 @@ def parse_arguments():
 def validate_args(args):
     if args.read_file and not os.path.isfile(args.read_file):
         print(f'args validation error: {args.read_file} not found')
+        return False
+
+    if args.gpu is not None and args.gpu >= torch.cuda.device_count():
+        print(
+            f'args validation error: {args.gpu} is invalid gpu device id, node has {torch.cuda.device_count()} gpus'
+        )
         return False
 
     return True
