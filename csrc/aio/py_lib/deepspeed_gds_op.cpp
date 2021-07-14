@@ -92,6 +92,7 @@ void gds_op_desc_t::run(const int tid,
 {
     assert (tid < _num_threads);
     check_cudaruntimecall(cudaSetDevice(_buffer.get_device()));
+
     if (_read_op) {
         _read_file(tid);
     }

@@ -20,9 +20,9 @@ def pre_handle(args, tid, read_op):
 
     task_log(tid, f'Allocate tensor of size {num_bytes} bytes')
     if args.gpu is not None:
-        buffer = torch.empty(num_bytes, dtype=torch.uint8, device=f'cuda:{args.gpu}')
+        buffer = torch.randint(high=128, size=(num_bytes,), dtype=torch.uint8, device=f'cuda:{args.gpu}')
     else:
-        buffer = torch.empty(num_bytes, dtype=torch.uint8, device='cpu').pin_memory()
+        buffer = torch.randint(high=128, size=(num_bytes,), dtype=torch.uint8, device='cpu').pin_memory()
     task_log(
         tid,
         f'{io_string} file {file} of size {num_bytes} bytes from buffer on device {buffer.device}'
@@ -81,6 +81,10 @@ def main_parallel_read(pool_params):
 
 def main_parallel_write(pool_params):
     args, tid, ctxt = pool_params
+    # Avoid overwriting existing files as it could be artificially faster
+    if os.path.isfile(ctxt['file']):
+        os.remove(ctxt['file'])
+
     handle = ctxt['handle']
     start_time = time.time()
     ret = handle.pwrite(ctxt['buffer'], ctxt['file'], args.validate, True)
@@ -107,6 +111,10 @@ def main_handle_read(pool_parms):
 
 def main_handle_write(pool_parms):
     args, tid, ctxt = pool_parms
+    # Avoid overwriting existing files as it could be artificially faster
+    if os.path.isfile(ctxt['file']):
+        os.remove(ctxt['file'])
+
     handle = ctxt['handle']
     start_time = time.time()
     ret = handle.write(ctxt['buffer'], ctxt['file'], args.validate)

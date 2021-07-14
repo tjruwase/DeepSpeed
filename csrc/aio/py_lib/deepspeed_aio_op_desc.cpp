@@ -48,8 +48,6 @@ void io_op_desc_t::run(const int tid,
                        deepspeed_aio_config_t* aio_config)
 {
     assert (tid < _num_threads);
-    std::cout << "Start running aio_op " << _read_op << " tid = " << tid << std::endl;
-
     const auto base_offset = _num_bytes_per_thread * tid;
 
     std::unique_ptr<io_xfer_ctxt> xfer_ctxt(new io_xfer_ctxt(
@@ -62,5 +60,4 @@ void io_op_desc_t::run(const int tid,
         do_aio_operation_sequential(
             _read_op, aio_ctxt, xfer_ctxt, aio_config, nullptr);
     }
-    std::cout << "End running aio_op " << _read_op << " tid = " << tid << std::endl;
 }
