@@ -13,12 +13,12 @@ struct cpu_op_desc_t : io_op_desc_t {
     torch::Tensor _cpu_buffer;
 
     cpu_op_desc_t(const bool read_op,
-                 const torch::Tensor& buffer,
-                 const int fd,
-                 const char* filename,
-                 const long long int file_num_bytes,
-                 const int num_threads,
-                 const bool validate);
+                  const torch::Tensor& buffer,
+                  const int fd,
+                  const char* filename,
+                  const long long int file_num_bytes,
+                  const int num_threads,
+                  const bool validate);
 
     void run(const int tid,
              std::unique_ptr<aio_context>& aio_ctxt,
