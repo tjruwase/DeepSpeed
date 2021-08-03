@@ -7,11 +7,8 @@ Functionality for swapping optimizer tensors to/from (NVMe) storage devices.
 
 #include "deepspeed_gds_op.h"
 #include <cstdlib>
-#include <set>
 
 using namespace std;
-
-static std::set<char*> s_buffer_registry;
 
 void _safe_handle_register(const int fd, CUfileDescr_t& cf_descr, CUfileHandle_t& cf_handle)
 {
@@ -28,7 +25,6 @@ void _safe_handle_register(const int fd, CUfileDescr_t& cf_descr, CUfileHandle_t
 
 void _safe_buffer_register(void* gpu_buffer, const size_t size, const int64_t device)
 {
-    //std::cout << "gpu: " << device  << " gds register buffer " << gpu_buffer << " of size " << size << std::endl;
     CUfileError_t status = cuFileBufRegister(gpu_buffer, size, 0);
     if (status.err != CU_FILE_SUCCESS) {
         std::cerr << "buffer register failed:" << cuFileGetErrorString(status) << std::endl;
@@ -52,21 +48,14 @@ gds_op_desc_t::gds_op_desc_t(const bool read_op,
 
     _safe_handle_register(fd, _cf_descr, _cf_handle);
 
-    const auto search = s_buffer_registry.find(data_ptr());
-    if (search == s_buffer_registry.end()) {
-        _safe_buffer_register(_contiguous_buffer.data_ptr(), _buffer.nbytes(), _buffer.get_device());
-        s_buffer_registry.insert(data_ptr());
-    }
-    else {
-        //std::cout << "gpu: " << _buffer.get_device() << " gds skip register buffer " << _contiguous_buffer.data_ptr() << " of size " << _buffer.nbytes() << std::endl;
-    }
+    _safe_buffer_register(_contiguous_buffer.data_ptr(), _buffer.nbytes(), _buffer.get_device());
 }
 
 char* gds_op_desc_t::data_ptr() const { return (char*)_contiguous_buffer.data_ptr(); }
 
 void gds_op_desc_t::fini()
 {
-    //check_cuFileCall(cuFileBufDeregister(_buffer.data_ptr()), "file buffer deregister");
+    check_cuFileCall(cuFileBufDeregister(_buffer.data_ptr()), "file buffer deregister");
 
     cuFileHandleDeregister(_cf_handle);
 }
