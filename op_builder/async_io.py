@@ -23,6 +23,7 @@ class AsyncIOBuilder(OpBuilder):
             'csrc/aio/py_lib/deepspeed_py_aio_handle.cpp',
             'csrc/aio/py_lib/deepspeed_aio_thread.cpp',
             'csrc/aio/py_lib/deepspeed_aio_op_desc.cpp',
+            'csrc/aio/py_lib/deepspeed_cpu_op.cpp',
             'csrc/aio/py_lib/deepspeed_gds_op.cpp',
             'csrc/aio/common/deepspeed_aio_utils.cpp',
             'csrc/aio/common/deepspeed_aio_common.cpp',

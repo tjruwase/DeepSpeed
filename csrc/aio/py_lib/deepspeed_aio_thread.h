@@ -8,6 +8,7 @@ Functionality for swapping optimizer tensors to/from (NVMe) storage devices.
 #include <condition_variable>
 #include <memory>
 #include <queue>
+#include "deepspeed_cpu_op.h"
 #include "deepspeed_gds_op.h"
 
 struct thread_sync_t {

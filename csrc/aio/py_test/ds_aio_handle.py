@@ -10,37 +10,60 @@ import os
 import time
 from multiprocessing import Pool, Barrier
 from deepspeed.ops.aio import AsyncIOBuilder
-from test_ds_aio_utils import report_results, task_log, task_barrier
+from test_ds_aio_utils import report_results, task_log, task_barrier, create_filename, create_file
+
+BUFFER = 'buffer'
+BOUNCE_BUFFER = 'bounce_buffer'
 
 
 def pre_handle(args, tid, read_op):
     io_string = "Read" if read_op else "Write"
-    num_bytes = os.path.getsize(args.read_file) if read_op else args.write_size
-    file = args.read_file if read_op else f'{args.write_file}.{tid}'
+    num_bytes = args.io_size
+    device_id, folder = args.mapping_list[tid]
+    filename = create_filename(folder, args.read, args.io_size, tid)
+    if args.read and not (os.path.isfile(filename)
+                          and os.path.getsize(filename) == args.io_size):
+        create_file(filename, args.io_size)
 
-    task_log(tid, f'Allocate tensor of size {num_bytes} bytes')
-    if args.gpu is not None:
-        buffer = torch.randint(high=128, size=(num_bytes,), dtype=torch.uint8, device=f'cuda:{args.gpu}')
+    task_log(tid, f'Allocate tensor of size {args.io_size} bytes')
+    bounce_buffer = None
+    if args.gpu:
+        buffer = torch.randint(high=128,
+                               size=(args.io_size,
+                                     ),
+                               dtype=torch.uint8,
+                               device=f'cuda:{device_id}')
+        if not args.slow_bounce_buffer:
+            bounce_buffer = torch.randint(high=128,
+                                          size=(args.io_size,
+                                                ),
+                                          dtype=torch.uint8,
+                                          device='cpu').pin_memory()
     else:
-        buffer = torch.randint(high=128, size=(num_bytes,), dtype=torch.uint8, device='cpu').pin_memory()
+        buffer = torch.randint(high=128,
+                               size=(args.io_size,
+                                     ),
+                               dtype=torch.uint8,
+                               device='cpu').pin_memory()
     task_log(
         tid,
-        f'{io_string} file {file} of size {num_bytes} bytes from buffer on device {buffer.device}'
-    )
+        f'{io_string} file {filename} of size {args.io_size} bytes from buffer on device {buffer.device}',
+        force=True)
 
     io_parallel = args.io_parallel if args.io_parallel else 1
     handle = AsyncIOBuilder().load().aio_handle(args.block_size,
                                                 args.queue_depth,
                                                 args.single_submit,
-                                                args.overlap_events,
+                                                not args.sequential_requests,
                                                 io_parallel)
     task_log(tid, f'created deepspeed aio handle')
 
     ctxt = {}
-    ctxt['file'] = file
-    ctxt['num_bytes'] = num_bytes
+    ctxt['file'] = filename
+    ctxt['num_bytes'] = args.io_size
     ctxt['handle'] = handle
-    ctxt['buffer'] = buffer
+    ctxt[BUFFER] = buffer
+    ctxt[BOUNCE_BUFFER] = bounce_buffer
     ctxt['elapsed_sec'] = 0
 
     return ctxt
@@ -60,8 +83,10 @@ def pre_handle_write(pool_params):
 
 def post_handle(pool_params):
     _, _, ctxt = pool_params
-    ctxt["buffer"].detach()
-    ctxt["buffer"] = None
+    for buf in [BUFFER, BOUNCE_BUFFER]:
+        if ctxt[buf] is not None:
+            ctxt[buf].detach()
+            ctxt[buf] = None
     return ctxt
 
 
@@ -70,9 +95,12 @@ def main_parallel_read(pool_params):
     handle = ctxt['handle']
 
     start_time = time.time()
-    ret = handle.pread(ctxt['buffer'], ctxt['file'], args.validate, True)
+    dest_buffer = BOUNCE_BUFFER if ctxt[BOUNCE_BUFFER] is not None else BUFFER
+    ret = handle.pread(ctxt[dest_buffer], ctxt['file'], args.validate, True)
     assert ret != -1
     handle.wait()
+    if dest_buffer == BOUNCE_BUFFER:
+        ctxt[BUFFER].data.copy_(ctxt[BOUNCE_BUFFER].data)
     end_time = time.time()
     ctxt['elapsed_sec'] += end_time - start_time
 
@@ -87,7 +115,12 @@ def main_parallel_write(pool_params):
 
     handle = ctxt['handle']
     start_time = time.time()
-    ret = handle.pwrite(ctxt['buffer'], ctxt['file'], args.validate, True)
+    if ctxt[BOUNCE_BUFFER] is not None:
+        source_buffer = BOUNCE_BUFFER
+        ctxt[BOUNCE_BUFFER].data.copy_(ctxt[BUFFER].data)
+    else:
+        source_buffer = BUFFER
+    ret = handle.pwrite(ctxt[source_buffer], ctxt['file'], args.validate, True)
     assert ret != -1
     handle.wait()
     end_time = time.time()
@@ -101,8 +134,11 @@ def main_handle_read(pool_parms):
     handle = ctxt['handle']
 
     start_time = time.time()
-    ret = handle.read(ctxt['buffer'], ctxt['file'], args.validate)
+    dest_buffer = BOUNCE_BUFFER if ctxt[BOUNCE_BUFFER] is not None else BUFFER
+    ret = handle.read(ctxt[dest_buffer], ctxt['file'], args.validate)
     assert ret != -1
+    if dest_buffer == BOUNCE_BUFFER:
+        ctxt[BUFFER].data.copy_(ctxt[BOUNCE_BUFFER].data)
     end_time = time.time()
     ctxt['elapsed_sec'] += end_time - start_time
 
@@ -117,7 +153,12 @@ def main_handle_write(pool_parms):
 
     handle = ctxt['handle']
     start_time = time.time()
-    ret = handle.write(ctxt['buffer'], ctxt['file'], args.validate)
+    if ctxt[BOUNCE_BUFFER] is not None:
+        source_buffer = BOUNCE_BUFFER
+        ctxt[BOUNCE_BUFFER].data.copy_(ctxt[BUFFER].data)
+    else:
+        source_buffer = BUFFER
+    ret = handle.write(ctxt[source_buffer], ctxt['file'], args.validate)
     assert ret != -1
     end_time = time.time()
     ctxt['elapsed_sec'] += end_time - start_time
@@ -130,27 +171,28 @@ def get_schedule(args, read_op):
     if read_op:
         schedule['pre'] = pre_handle_read
         schedule['post'] = post_handle
-        schedule['main'] = main_parallel_read if args.io_parallel else main_handle_read
+        schedule['main'] = main_parallel_read
     else:
         schedule['pre'] = pre_handle_write
         schedule['post'] = post_handle
-        schedule['main'] = main_parallel_write if args.io_parallel else main_handle_write
+        schedule['main'] = main_parallel_write
 
     return schedule
 
 
 def _aio_handle_tasklet(pool_params):
     args, tid, read_op = pool_params
+    num_processes = len(args.mapping_dict)
 
     # Create schedule
     schedule = get_schedule(args, read_op)
     task_log(tid, f'schedule = {schedule}')
-    task_barrier(aio_barrier, args.threads)
+    task_barrier(aio_barrier, num_processes)
 
     # Run pre task
     task_log(tid, f'running pre-task')
     ctxt = schedule["pre"]((args, tid))
-    task_barrier(aio_barrier, args.threads)
+    task_barrier(aio_barrier, num_processes)
 
     # Run main tasks in a loop
     ctxt["main_task_sec"] = 0
@@ -158,14 +200,14 @@ def _aio_handle_tasklet(pool_params):
         task_log(tid, f'running main task {i}')
         start_time = time.time()
         ctxt = schedule["main"]((args, tid, ctxt))
-        task_barrier(aio_barrier, args.threads)
+        task_barrier(aio_barrier, num_processes)
         stop_time = time.time()
         ctxt["main_task_sec"] += stop_time - start_time
 
     # Run post task
     task_log(tid, f'running post-task')
     ctxt = schedule["post"]((args, tid, ctxt))
-    task_barrier(aio_barrier, args.threads)
+    task_barrier(aio_barrier, num_processes)
 
     return ctxt["main_task_sec"], ctxt["elapsed_sec"], ctxt["num_bytes"] * args.loops
 
@@ -176,9 +218,10 @@ def _init_takslet(b):
 
 
 def aio_handle_multiprocessing(args, read_op):
-    b = Barrier(args.threads)
-    pool_params = [(args, p, read_op) for p in range(args.threads)]
-    with Pool(processes=args.threads, initializer=_init_takslet, initargs=(b, )) as p:
+    num_processes = len(args.mapping_dict)
+    b = Barrier(num_processes)
+    pool_params = [(args, p, read_op) for p in range(num_processes)]
+    with Pool(processes=num_processes, initializer=_init_takslet, initargs=(b, )) as p:
         pool_results = p.map(_aio_handle_tasklet, pool_params)
 
     report_results(args, read_op, pool_results)

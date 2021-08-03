@@ -26,8 +26,7 @@ static std::shared_ptr<struct io_op_desc_t> _create_io_op_desc(const bool read_o
         return std::make_shared<gds_op_desc_t>(
             read_op, buffer, fd, filename, file_num_bytes, num_threads, validate);
     }
-
-    return std::make_shared<io_op_desc_t>(
+    return std::make_shared<cpu_op_desc_t>(
         read_op, buffer, fd, filename, file_num_bytes, num_threads, validate);
 }
 

@@ -19,7 +19,7 @@
         true,
         false
     ],
-    "overlap_events": [
+    "sequential_requests": [
         true,
         false
     ],

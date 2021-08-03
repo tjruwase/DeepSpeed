@@ -53,8 +53,8 @@ for sub in single block; do
         sub_opt=""
     fi
     for ov in overlap sequential; do
-        if [[ $ov == "overlap" ]]; then
-            ov_opt="--overlap_events"
+        if [[ $ov == "sequential" ]]; then
+            ov_opt="--sequential_requests"
         else
             ov_opt=""
         fi

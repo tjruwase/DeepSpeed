@@ -9,10 +9,10 @@ import sys
 import argparse
 import json
 import itertools
-import subprocess
 import shutil
 
-from test_ds_aio_utils import refine_integer_value
+from test_ds_aio_utils import refine_integer_value, create_file
+from ds_aio_job import Job, run_job
 from perf_sweep_utils import READ_OP_DESC, WRITE_OP_DESC, BENCH_LOG_DIR, \
     READ_IO_DIR, WRITE_IO_DIR, READ_LOG_DIR, WRITE_LOG_DIR
 
@@ -24,41 +24,12 @@ DEFAULT_SWEEP_CONFIG = {
     "queue_depth": [4,
                     16,
                     32],
-    "overlap_events": [True,
-                       False],
+    "sequential_requests": [True,
+                            False],
     "io_parallel": [2,
                     8],
     "single_submit": [False]
 }
-
-
-class Job(object):
-    def __init__(self, cmd_line, output_file=None, work_dir=None):
-        self.cmd_line = cmd_line
-        self.output_file = output_file
-        self.work_dir = work_dir
-        self.output_fd = None
-
-    def cmd(self):
-        return self.cmd_line
-
-    def get_stdout(self):
-        return self.output_fd
-
-    def get_stderr(self):
-        return self.output_fd
-
-    def get_cwd(self):
-        return self.work_dir
-
-    def open_output_file(self):
-        if self.output_file is not None:
-            self.output_fd = open(self.output_file, 'w')
-
-    def close_output_file(self):
-        if self.output_fd is not None:
-            self.output_fd.close()
-            self.output_fd = None
 
 
 class SweepConfig(object):
@@ -165,20 +136,6 @@ def get_sweep_cmd_lines(sweep_config_dict):
     return cmd_list
 
 
-def run_job(job):
-    args = ' '.join(job.cmd())
-    print(f'args = {args}')
-    job.open_output_file()
-    proc = subprocess.run(args=args,
-                          shell=True,
-                          stdout=job.get_stdout(),
-                          stderr=job.get_stderr(),
-                          cwd=job.get_cwd())
-    job.close_output_file()
-    assert proc.returncode == 0, \
-    f"This command failed: {job.cmd()}"
-
-
 def launch_sweep(sweep_jobs, sync_job, flush_cache_job):
     for perf_job in sweep_jobs:
         if flush_cache_job is not None:
@@ -205,7 +162,7 @@ def get_log_file(io_op_desc, cmd_line):
     QUEUE_DEPTH = "--queue_depth"
     BLOCK_SIZE = "--block_size"
     SINGLE_SUBMIT = "--single_submit"
-    OVERLAP_EVENTS = "--overlap_events"
+    SEQUENTIAL_REQUESTS = "--sequential_requests"
     THREAD_COUNT = "--threads"
     IO_PARALLEL = "--io_parallel"
 
@@ -213,7 +170,7 @@ def get_log_file(io_op_desc, cmd_line):
         QUEUE_DEPTH: "d",
         BLOCK_SIZE: "bs",
         SINGLE_SUBMIT: "single",
-        OVERLAP_EVENTS: "overlap",
+        SEQUENTIAL_REQUESTS: "sequential",
         THREAD_COUNT: "t",
         IO_PARALLEL: "p"
     }
@@ -222,14 +179,14 @@ def get_log_file(io_op_desc, cmd_line):
         QUEUE_DEPTH: 1,
         BLOCK_SIZE: "1M",
         SINGLE_SUBMIT: "block",
-        OVERLAP_EVENTS: "sequential",
+        SEQUENTIAL_REQUESTS: "overlap",
         THREAD_COUNT: 1,
         IO_PARALLEL: 1
     }
 
     def get_default_value(tag):
         value = tag_default[tag]
-        if tag in [SINGLE_SUBMIT, OVERLAP_EVENTS]:
+        if tag in [SINGLE_SUBMIT, SEQUENTIAL_REQUESTS]:
             return value
         return f'{tag_map[tag]}{value}'
 
@@ -241,7 +198,7 @@ def get_log_file(io_op_desc, cmd_line):
 
     tag_list = [
         SINGLE_SUBMIT,
-        OVERLAP_EVENTS,
+        SEQUENTIAL_REQUESTS,
         THREAD_COUNT,
         IO_PARALLEL,
         QUEUE_DEPTH,
@@ -282,33 +239,11 @@ def async_io_setup():
     return AsyncIOBuilder().is_compatible()
 
 
-def get_block_size_and_count(io_bytes):
-    block_size = 1
-    block_count = io_bytes
-    bytes_in_KB = 1024
-
-    while block_count % bytes_in_KB == 0:
-        block_size *= bytes_in_KB
-        block_count /= bytes_in_KB
-
-    return int(block_size), int(block_count)
-
-
 def create_read_file(sweep_config):
     read_folder = os.path.join(sweep_config.nvme_dir, f'{READ_IO_DIR}')
     os.makedirs(read_folder, exist_ok=True)
     read_file_name = os.path.join(read_folder, f'random_{sweep_config.io_size}B.pt')
-    block_size, block_count = get_block_size_and_count(refine_integer_value(sweep_config.io_size))
-    dd_job = Job(cmd_line=[
-        f'dd if=/dev/urandom of={read_file_name} bs={block_size} count={block_count}'
-    ])
-    print(
-        f'[Start] Create read file of {sweep_config.io_size} bytes by running {dd_job.cmd()} ....'
-    )
-    run_job(dd_job)
-    print(
-        f'[Done] Create read file of {sweep_config.io_size} bytes by running {dd_job.cmd()} ....'
-    )
+    create_file(read_file, refine_integer_value(sweep_config.io_size))
     return read_folder, read_file_name
 
 

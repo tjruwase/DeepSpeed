@@ -4,7 +4,8 @@ Licensed under the MIT license.
 
 Functionality for swapping optimizer tensors to/from (NVMe) storage devices.
 */
-
+#ifndef _IO_OP_DESC_T_
+#define _IO_OP_DESC_T_
 #include <memory>
 #include <queue>
 #include "deepspeed_py_aio.h"
@@ -29,8 +30,8 @@ struct io_op_desc_t {
                  const bool validate);
 
     virtual void run(const int tid,
-             std::unique_ptr<aio_context>& aio_ctxt,
-             deepspeed_aio_config_t* aio_config);
+                     std::unique_ptr<aio_context>& aio_ctxt,
+                     deepspeed_aio_config_t* aio_config);
 
     virtual char* data_ptr() const;
 
@@ -38,3 +39,4 @@ struct io_op_desc_t {
 
     virtual void fini();
 };
+#endif  // _IO_OP_DESC_T_

@@ -61,7 +61,7 @@ def main_basic_read(pool_params):
                                      args.block_size,
                                      args.queue_depth,
                                      args.single_submit,
-                                     args.overlap_events,
+                                     not args.sequential_requests,
                                      args.validate)
     end_time = time.time()
     ctxt['elapsed_sec'] += end_time - start_time
@@ -77,7 +77,7 @@ def main_basic_write(pool_params):
                                       args.block_size,
                                       args.queue_depth,
                                       args.single_submit,
-                                      args.overlap_events,
+                                      not args.sequential_requests,
                                       args.validate)
     end_time = time.time()
     ctxt['elapsed_sec'] += end_time - start_time
@@ -101,16 +101,17 @@ def get_schedule(args, read_op):
 
 def _aio_handle_tasklet(pool_params):
     args, tid, read_op = pool_params
+    num_processes = len(args.mapping_dict)
 
     # Create schedule
     schedule = get_schedule(args, read_op)
     task_log(tid, f'schedule = {schedule}')
-    task_barrier(aio_barrier, args.threads)
+    task_barrier(aio_barrier, num_processess)
 
     # Run pre task
     task_log(tid, f'running pre-task')
     ctxt = schedule["pre"]((args, tid))
-    task_barrier(aio_barrier, args.threads)
+    task_barrier(aio_barrier, num_processess)
 
     # Run main tasks in a loop
     ctxt["main_task_sec"] = 0
@@ -118,14 +119,14 @@ def _aio_handle_tasklet(pool_params):
         task_log(tid, f'running main task {i}')
         start_time = time.time()
         ctxt = schedule["main"]((args, tid, ctxt))
-        task_barrier(aio_barrier, args.threads)
+        task_barrier(aio_barrier, num_processess)
         stop_time = time.time()
         ctxt["main_task_sec"] += stop_time - start_time
 
     # Run post task
     task_log(tid, f'running post-task')
     ctxt = schedule["post"]((args, tid, ctxt))
-    task_barrier(aio_barrier, args.threads)
+    task_barrier(aio_barrier, num_processess)
 
     return ctxt["main_task_sec"], ctxt["elapsed_sec"], ctxt["num_bytes"] * args.loops
 
@@ -136,9 +137,10 @@ def _init_takslet(b):
 
 
 def aio_basic_multiprocessing(args, read_op):
-    b = Barrier(args.threads)
-    pool_params = [(args, p, read_op) for p in range(args.threads)]
-    with Pool(processes=args.threads, initializer=_init_takslet, initargs=(b, )) as p:
+    num_processes = len(args.mapping_dict)
+    b = Barrier(num_processes)
+    pool_params = [(args, p, read_op) for p in range(num_processes)]
+    with Pool(processes=num_processess, initializer=_init_takslet, initargs=(b, )) as p:
         pool_results = p.map(_aio_handle_tasklet, pool_params)
 
     report_results(args, read_op, pool_results)
