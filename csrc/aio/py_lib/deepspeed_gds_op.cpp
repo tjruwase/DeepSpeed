@@ -32,8 +32,8 @@ void _safe_buffer_register(void* gpu_buffer, const size_t size, const int64_t de
     // size << std::endl;
     CUfileError_t status = cuFileBufRegister(gpu_buffer, size, 0);
     if (status.err != CU_FILE_SUCCESS) {
-        std::cerr << "buffer register failed:" << cuFileGetErrorString(status) << std::endl;
-        exit(EXIT_FAILURE);
+        std::cout << "buffer register failed:" << cuFileGetErrorString(status) << std::endl;
+        //exit(EXIT_FAILURE);
     }
 }
 
@@ -53,15 +53,15 @@ gds_op_desc_t::gds_op_desc_t(const bool read_op,
 
     _safe_handle_register(fd, _cf_descr, _cf_handle);
 
-    const auto search = s_buffer_registry.find(data_ptr());
-    if (search == s_buffer_registry.end()) {
-        _safe_buffer_register(
-            _contiguous_buffer.data_ptr(), _buffer.nbytes(), _buffer.get_device());
-        s_buffer_registry.insert(data_ptr());
-    } else {
-        // std::cout << "gpu: " << _buffer.get_device() << " gds skip register buffer " <<
-        // _contiguous_buffer.data_ptr() << " of size " << _buffer.nbytes() << std::endl;
-    }
+//    const auto search = s_buffer_registry.find(data_ptr());
+//    if (search == s_buffer_registry.end()) {
+//        _safe_buffer_register(
+//            _contiguous_buffer.data_ptr(), _buffer.nbytes(), _buffer.get_device());
+//        s_buffer_registry.insert(data_ptr());
+//    } else {
+//        // std::cout << "gpu: " << _buffer.get_device() << " gds skip register buffer " <<
+//        // _contiguous_buffer.data_ptr() << " of size " << _buffer.nbytes() << std::endl;
+//    }
 }
 
 char* gds_op_desc_t::data_ptr() const { return (char*)_contiguous_buffer.data_ptr(); }
